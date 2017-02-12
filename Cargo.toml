@@ -1,0 +1,9 @@
+[package]
+name = "dns-proxy"
+version = "0.1.0"
+authors = ["rbmj <rbmj@verizon.net>"]
+
+[dependencies]
+dns-parser = "0.6.0"
+lru-cache = "0.1.0"
+
