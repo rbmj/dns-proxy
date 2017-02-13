@@ -1,8 +1,14 @@
+#[macro_use(quick_error)] extern crate quick_error;
 extern crate dns_parser;
+extern crate byteorder;
+extern crate itertools;
 
+use byteorder::BigEndian;
 use std::net::UdpSocket;
-use std::net::SocketAddr;
+use std::net::{ToSocketAddrs, SocketAddr};
 use dns_parser::Packet;
+
+mod dns;
 
 fn print_header(header: &dns_parser::Header) {
     println!("Packet {:x}:", header.id);
@@ -21,16 +27,41 @@ fn print_header(header: &dns_parser::Header) {
     }
 }
 
-fn print_questions(qvec: &Vec<dns_parser::Question>) {
-    println!("\tQuestions:");
-    for q in qvec {
-        println!("\t\t{:?} {:?} {}", q.qclass, q.qtype, q.qname);
-    }
-}
-
 fn print_packet(pkt: &Packet) {
     print_header(&pkt.header);
-    print_questions(&pkt.questions);
+
+    if pkt.questions.len() != 0 { println!("\tQuestions:"); }
+    for q in pkt.questions.iter() {
+        println!("\t\t{:?} {:?} {}", q.qclass, q.qtype, q.qname);
+    }
+
+    if pkt.answers.len() != 0 { println!("\tAnswers:"); }
+    for a in pkt.answers.iter() {
+        println!("\t\t{:?}", a);
+    }
+
+    if pkt.nameservers.len() != 0 { println!("\tNameservers:"); }
+    for ns in pkt.nameservers.iter() {
+        println!("\t\t{:?}", ns);
+    }
+
+    if pkt.additional.len() != 0 {println!("\tAdditional RRs:"); }
+    for rr in pkt.additional.iter() {
+        println!("\t\t{:?}", rr);
+    }
+
+    //TODO:  This formatting probably needs work
+    if let Some(ref opt) = pkt.opt {
+        println!("\tRFC 6891 OPT Data:");
+        println!("\t\tEDNS v{}; UDP Max Size {}", opt.version , opt.udp);
+        println!("\t\tFlags {}", opt.flags);
+        if let dns_parser::RRData::Unknown(ref data) = opt.data {
+            if data.len() > 0 {
+                println!("\t\t{:?}", data);
+            }
+        }
+        else { println!("\t\t{:?}", opt.data); }
+    }
 }
 
 fn handle_packet(buf: &[u8], sz: usize, srcaddr: SocketAddr) {
@@ -42,6 +73,8 @@ fn handle_packet(buf: &[u8], sz: usize, srcaddr: SocketAddr) {
 }
 
 fn main() {
+    //TODO: Config
+    let upstream = "8.8.8.8:53".to_socket_addrs();
     let socket = match UdpSocket::bind("0.0.0.0:53") {
         Ok(s) => s,
         Err(e) => panic!("Failed to bind: {}", e)
@@ -49,8 +82,19 @@ fn main() {
     let mut buf = [0 as u8; 2048];
     loop {
         match socket.recv_from(&mut buf) {
-            Ok((amt, src)) => handle_packet(&buf, amt, src),
-            Err(e) => println!("Error recv: {}", e)
+            Ok((amt, src)) => {
+                match Packet::parse(&buf) {
+                    Ok(p) => {
+                        print_packet(&p);
+
+                    }
+                    Err(e) => {
+                        println!("packet (source {}) parse error: {}", src, e);
+                        //FIXME: Try and include a packet ID for diagnostics
+                    }
+                }
+            },
+            Err(e) => println!("recv error: {}", e)
         }
     }
 }
