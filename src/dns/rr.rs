@@ -1,20 +1,22 @@
 use std::fmt;
-use std::io::{Cursor, Write};
-use std::net::{Ipv4Addr, Ipv6Addr};
+use std::str::FromStr;
+use std::io::{Cursor, Write, Seek, SeekFrom};
+use std::net::{Ipv4Addr, Ipv6Addr, AddrParseError};
 use byteorder::{BigEndian, WriteBytesExt};
 
-use super::{Name, Error};
+use super::{Name, Error, Class, Type};
 use dns_parser;
-pub use dns_parser::Class as RRClass;
 
+#[derive(Clone)]
 pub struct ResourceRecord {
     pub name: Name,
     pub multicast_unique: bool,
-    pub class: RRClass,
+    pub class: Class,
     pub ttl: u32,
     pub data: RRData
 }
 
+#[derive(Clone)]
 pub struct OptRecord {
     pub udp: u16,
     pub extrcode: u8,
@@ -23,6 +25,7 @@ pub struct OptRecord {
     pub data: RRData
 }
 
+#[derive(Clone)]
 pub struct SoaRecord {
     pub primary_ns: Name,
     pub mailbox: Name,
@@ -33,6 +36,7 @@ pub struct SoaRecord {
     pub min_ttl: u32
 }
 
+#[derive(Clone)]
 pub struct SrvRecord {
     priority: u16,
     weight: u16,
@@ -40,11 +44,13 @@ pub struct SrvRecord {
     target: Name
 }
 
+#[derive(Clone)]
 pub struct MxRecord {
     preference: u16,
     exchange: Name
 }
 
+#[derive(Clone)]
 pub enum RRData {
     CNAME(Name),
     NS(Name),
@@ -58,7 +64,125 @@ pub enum RRData {
     Unknown(Vec<u8>)
 }
 
+pub trait RRDataMap {
+    type D;
+    fn map(&RRData) -> Option<&Self::D>;
+    fn map_mut(&mut RRData) -> Option<&mut Self::D>;
+    fn unmap(Self::D) -> RRData;
+}
+
+pub trait RRDataUnmapStr {
+    type E;
+    fn unmap_str(&str) -> Result<RRData, Self::E>;
+}
+
+pub struct CNAME;
+impl RRDataMap for CNAME {
+    type D = Name;
+    fn map(rrd: &RRData) -> Option<&Name> {
+        if let &RRData::CNAME(ref n) = rrd {
+            return Some(n);
+        }
+        None
+    }
+    fn map_mut(rrd: &mut RRData) -> Option<&mut Name> {
+        if let &mut RRData::CNAME(ref mut n) = rrd {
+            return Some(n);
+        }
+        None
+    }
+    fn unmap(n: Name) -> RRData {
+        RRData::CNAME(n)
+    }
+}
+impl RRDataUnmapStr for CNAME {
+    type E = Error;
+    fn unmap_str(s: &str) -> Result<RRData, Error> {
+        Ok(RRData::CNAME(Name::from_str(s)?))
+    }
+}
+
+pub struct A;
+impl RRDataMap for A {
+    type D = Ipv4Addr;
+    fn map(rrd: &RRData) -> Option<&Ipv4Addr> {
+        if let &RRData::A(ref addr) = rrd {
+            return Some(addr);
+        }
+        None
+    }
+    fn map_mut(rrd: &mut RRData) -> Option<&mut Ipv4Addr> {
+        if let &mut RRData::A(ref mut addr) = rrd {
+            return Some(addr);
+        }
+        None
+    }
+    fn unmap(a: Ipv4Addr) -> RRData {
+        RRData::A(a)
+    }
+}
+impl RRDataUnmapStr for A {
+    type E = AddrParseError;
+    fn unmap_str(s: &str) -> Result<RRData, AddrParseError> {
+        Ok(RRData::A(Ipv4Addr::from_str(s)?))
+    }
+}
+
+#[derive(Debug)]
+pub enum RRError<T> {
+    DNS(Error),
+    DataConv(T)
+}
+
 impl ResourceRecord {
+    pub fn get_type(&self) -> Option<Type> {
+        Some(match &self.data {
+            &RRData::CNAME(_) => Type::CNAME,
+            &RRData::NS(_) => Type::NS,
+            &RRData::A(_) => Type::A,
+            &RRData::AAAA(_) => Type::AAAA,
+            &RRData::SRV(_) => Type::SRV,
+            &RRData::SOA(_) => Type::SOA,
+            &RRData::PTR(_) => Type::PTR,
+            &RRData::MX(_) => Type::MX,
+            &RRData::TXT(_) => Type::TXT,
+            &RRData::Unknown(_) => return None
+        })
+    }
+    pub fn get<T: RRDataMap>(&self) -> Option<&T::D> {
+        T::map(&self.data)
+    }
+    pub fn get_mut<T: RRDataMap>(&mut self) -> Option<&mut T::D> {
+        T::map_mut(&mut self.data)
+    }
+    pub fn new<T: RRDataMap>(n: Name, c: Class, d: T::D) -> Self {
+        //a lot of the time the TTL is ignored so we just set a sane default
+        Self::new_ttl::<T>(n, 60, c, d)
+    }
+    pub fn new_ttl<T: RRDataMap>(n: Name, ttl: u32, c: Class, d: T::D) -> Self {
+        ResourceRecord {
+            name: n,
+            multicast_unique: false, //only set in mDNS
+            class: c,
+            ttl: ttl,
+            data: T::unmap(d)
+        }
+    }
+    pub fn new_str<T>(n: &str, c: Class, d: &str)
+        -> Result<Self, RRError<<<T as RRDataMap>::D as FromStr>::Err>>
+        where T: RRDataMap, T::D: FromStr
+    {
+        //a lot of the time the TTL is ignored so we just set a sane default
+        Self::new_str_ttl::<T>(n, 60, c, d)
+    }
+    pub fn new_str_ttl<T>(n: &str, ttl: u32, c: Class, d: &str)
+        -> Result<Self, RRError<<<T as RRDataMap>::D as FromStr>::Err>>
+        where T: RRDataMap, T::D: FromStr
+    {
+        let name = try!(Name::from_str(n).map_err(RRError::DNS));
+        let data = try!(T::D::from_str(d).map_err(RRError::DataConv));
+        Ok(Self::new_ttl::<T>(name, ttl, c, data))
+    }
     pub fn serialize<T>(&self, cursor: &mut Cursor<T>) -> Result<(), Error> 
         where Cursor<T> : Write
     {
@@ -76,7 +200,7 @@ impl ResourceRecord {
         Ok(ResourceRecord{
             name: n,
             multicast_unique: rr.multicast_unique,
-            class: rr.cls,
+            class: Class::from(rr.cls),
             ttl: rr.ttl,
             data: RRData::from_packet(&rr.data)?
         })
@@ -233,7 +357,7 @@ impl RRData {
             &RRData::Unknown(ref v) => cursor.write_all(v.as_slice())?
         }
         let endpos = cursor.position();
-        cursor.set_position(pos);
+        cursor.set_position(pos-2);
         cursor.write_u16::<BigEndian>((endpos - pos) as u16)?;
         cursor.set_position(endpos);
         Ok(())

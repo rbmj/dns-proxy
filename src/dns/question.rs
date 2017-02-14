@@ -1,19 +1,32 @@
 use std::fmt;
+use std::str::FromStr;
 use std::io::{Cursor, Write};
 use byteorder::{BigEndian, WriteBytesExt};
 
-use super::{Name, Error};
-pub use dns_parser::{QueryType, QueryClass};
+use super::{Name, Error, Type, Class};
 use dns_parser;
 
+#[derive(Clone)]
 pub struct Question {
     pub name: Name,
     pub prefer_unicast: bool,
-    pub qtype: QueryType,
-    pub qclass: QueryClass
+    pub qtype: Type,
+    pub qclass: Class
 }
 
 impl Question {
+    pub fn new(n: Name, c: Class, qt: Type) -> Self {
+        Question{
+            name: n,
+            prefer_unicast: false, //true, but only actually used for mDNS
+            qtype: qt,
+            qclass: c
+        }
+    }
+    pub fn new_str(n: &str, c: Class, qt: Type) -> Result<Self, Error> {
+        Ok(Self::new(try!(Name::from_str(n)), c, qt))
+    }
+
     pub fn to_string(&self) -> String {
         format!("{:?} {:?} {}", self.qclass, self.qtype, self.name)
     }
@@ -32,8 +45,8 @@ impl Question {
         Ok(Question{
             name: n,
             prefer_unicast: q.prefer_unicast,
-            qtype: q.qtype,
-            qclass: q.qclass
+            qtype: Type::from(q.qtype),
+            qclass: Class::from(q.qclass)
         })
     }
 }

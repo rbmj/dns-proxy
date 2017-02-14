@@ -1,13 +1,15 @@
 use std::fmt;
+use std::str::FromStr;
 use std::io::{Cursor, Write};
 use std::iter::Rev;
 use std::slice::Iter;
-use byteorder::{BigEndian, WriteBytesExt};
+use byteorder::WriteBytesExt;
 use itertools::Itertools;
 use dns_parser::Error::LabelIsNotAscii;
 
 use super::Error;
 
+#[derive(Clone)]
 pub struct Label {
     data: String
 }
@@ -46,15 +48,12 @@ impl fmt::Display for Label {
     }
 }
 
+#[derive(Clone)]
 pub struct Name {
     labels: Vec<Label>
 }
 
 impl Name {
-    pub fn from_str(s: &str) -> Result<Self, Error> {
-        Ok(Name { labels: s.split('.').rev().map(|s| Label::from_str(s))
-            .collect::<Result<Vec<_>, Error>>()? })
-    }
     pub fn from_string(s: String) -> Result<Self, Error> {
         Self::from_str(s.as_str())
     }
@@ -78,6 +77,14 @@ impl Name {
         }
         try!(cursor.write_u8(0));
         Ok(())
+    }
+}
+
+impl FromStr for Name {
+    type Err = Error;
+    fn from_str(s: &str) -> Result<Self, Error> {
+        Ok(Name { labels: s.split('.').rev().map(|s| Label::from_str(s))
+            .collect::<Result<Vec<_>, Error>>()? })
     }
 }
 

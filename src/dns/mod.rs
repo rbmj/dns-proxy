@@ -19,15 +19,19 @@ quick_error! {
     }
 }
 
+mod enums;
+pub use self::enums::{Class, Type};
+
 mod name;
 pub use self::name::{Label, Name};
 
 mod question;
-pub use self::question::{Question, QueryType, QueryClass};
+pub use self::question::Question;
 
 mod rr;
-pub use self::rr::{ResourceRecord, OptRecord, RRClass};
+pub use self::rr::{ResourceRecord, OptRecord};
 pub use self::rr::{RRData, SrvRecord, SoaRecord, MxRecord};
+pub use self::rr::{A, CNAME};
 
 mod message;
-pub use self::message::{Message, Packet};
+pub use self::message::{Message, Packet, ResponseCode};
