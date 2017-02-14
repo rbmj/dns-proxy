@@ -1,7 +1,8 @@
 use std;
 use dns;
 use rand;
-
+use filter;
+use filter::Filter;
 use std::net::{UdpSocket, ToSocketAddrs, SocketAddr, SocketAddrV4, Ipv4Addr};
 
 use rand::random;
@@ -41,6 +42,7 @@ pub struct Server {
     udpseq: u16,
     upstream: std::vec::Vec<SocketAddr>,
     requests: std::vec::Vec<ConnectionData>, //65536 elements after init
+    filter: Filter
 }
 
 impl Server {
@@ -55,6 +57,7 @@ impl Server {
             udpseq: random::<u16>(),
             upstream: "8.8.8.8:53".to_socket_addrs().unwrap().collect(),
             requests: v,
+            filter: Filter::new()
         })
     }
     fn udpseq_advance(&mut self) -> u16 {

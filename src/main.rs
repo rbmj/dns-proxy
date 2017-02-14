@@ -1,13 +1,21 @@
-#[macro_use(quick_error)] extern crate quick_error;
-extern crate dns_parser;
-extern crate byteorder;
-extern crate itertools;
+extern crate dnis as dns;
 extern crate rand;
 extern crate lru_cache;
 
-mod dns;
 mod server;
+mod filter;
 use server::Server;
+use dns::Message;
+use std::net::SocketAddr;
+
+pub enum Action {
+    Pass,
+    SendServFail,
+    SendNxDomain,
+    SendRefused,
+    Nop,
+    MessageTo(Message, SocketAddr)
+}
 
 #[cfg(not(test))]
 fn main() {
