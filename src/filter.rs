@@ -1,7 +1,8 @@
 //! `Filter` Module Documentation
 //! 
 //! See the minimal example below for struct names and
-//! function signatures.
+//! function signatures.  See documentation on Action for
+//! possible server actions to take on packet
 //! 
 //! ```
 //! use std;
@@ -56,6 +57,11 @@ impl Filter {
     pub fn filter_request(&mut self, msg: &Message, origin: SocketAddr)
         -> Action
     {
+        for q in msg.iter_questions() {
+            if q.is::<TXT>() {
+                return SendRefused
+            }
+        }
         Pass
     }
     pub fn filter_response(&mut self, msg: &Message, origin: SocketAddr,

@@ -10,10 +10,12 @@ use std::net::SocketAddr;
 
 pub enum Action {
     Pass,
+    PassMangled(Message),
     SendServFail,
     SendNxDomain,
     SendRefused,
     Nop,
+    SendResponse(Message),
     MessageTo(Message, SocketAddr)
 }
 
